@@ -77,6 +77,51 @@ make manifests generate
 At this point `api/v1alpha1/ibmquantumaccount_types.go` exists with empty `Spec`/`Status` structs to
 fill in, and `controllers/ibmquantumaccount_controller.go` exists with an empty `Reconcile()`.
 
+## Design requirement: must not fight manual troubleshooting (added 2026-09-28, per explicit instruction)
+
+RHOAI/OpenShift AI's own workflow deliberately supports both automated pipelines (Tekton/Data Science
+Pipelines) *and* a human going into a Workbench to manually troubleshoot or modify a notebook before
+pushing a fix back into the automated path — the bootcamp material the user took covers exactly this
+mode. Any CRD this operator reconciles that touches pipeline/job/notebook state must be designed so a
+human taking manual control never produces a reconcile error, a fight-with-the-controller loop, or a
+`Requeue` storm. This needs to be baked into the reconciler shape now, in Phase 1, not bolted on later —
+it changes the fundamental control-flow of every `Reconcile()` function this project writes.
+
+**The established Kubernetes pattern for this, already used by resources we work with directly:**
+`CronJob.spec.suspend` and Argo Rollouts' `spec.paused` both give a human an explicit, declarative way to
+say "stop actively managing this, I'm taking over" without deleting anything or erroring — the controller
+checks the flag first thing in `Reconcile()` and returns cleanly if set, doing nothing further that run.
+RHOAI's own `Notebook` CR has its own version of this same idea: stopping a Workbench from the dashboard
+does not delete the `Notebook` CR, it scales its pod to zero via an annotation-driven mechanism (verified
+directly on our own live RHOAIAWS1 cluster that the CR is never deleted on stop, though the exact
+annotation key was not re-derived this session — not worth restating from memory without re-verifying;
+grep the installed `odh-notebook-controller` deployment/CSV directly when this matters for real).
+
+**Concrete design decisions for this project's CRDs:**
+
+1. **`IBMQuantumAccount.spec.suspend`** (`bool`, default `false`). When `true`, the reconciler performs
+   no Secret sync, no token/instance validation, no status-affecting side effects — it only refreshes a
+   `Suspended` status condition and returns `ctrl.Result{}, nil`. This matters even though Phase 1's
+   account CR barely does anything actively yet: it establishes the pattern before Phase 2 adds real
+   validation calls that could otherwise race with someone hand-editing a Secret mid-troubleshooting.
+2. **Any future `QuantumFunction`/`QuantumJob`-shaped CRD must have the same `spec.suspend` field**, and
+   it matters far more there: a scheduled function re-run or a git-source redeploy triggering while
+   someone has manually `oc exec`'d into the running Pod/Workbench to fix something would silently
+   clobber their in-progress work. `spec.suspend: true` must stop the controller from touching the
+   downstream Pod/Job/Notebook at all, not just stop new triggers.
+3. **General reconciler rule, not just a suspend check:** any downstream resource the controller doesn't
+   currently manage the existence of (because a human created, stopped, or hand-edited it) must be
+   treated as an observable fact to report in `.status`, never as an error condition that forces
+   `Requeue` with backoff. A missing/modified/stopped downstream resource is business-as-usual in this
+   project's workflow, not a fault.
+4. **Status conditions should say what's actually true**, including `Suspended: True` with a `reason`
+   distinguishing "user paused this" from other states — so `kubectl get ibmquantumaccount` (or whatever
+   future kind) is itself useful for a human deciding whether it's safe to resume automation, without
+   needing to check for a stray annotation elsewhere.
+
+This is a Phase 1 scaffolding requirement (the field and the early-return check go in from the start),
+not deferred feature work.
+
 ## Runbook — porting the existing CRD design into Go types
 
 Port field-for-field from `qiskit-openshift-ai/operator/config/crd/future/
@@ -85,6 +130,13 @@ quantum.example.com_ibmquantumaccounts.yaml` (the existing sketch) into
 
 ```go
 type IBMQuantumAccountSpec struct {
+    // Suspend stops the controller from taking any reconcile action (Secret sync, validation) beyond
+    // reporting a Suspended status condition -- set this while manually troubleshooting so the
+    // controller doesn't race a hand-edit. See "Design requirement: must not fight manual
+    // troubleshooting" above. Mirrors CronJob.spec.suspend's semantics deliberately.
+    // +kubebuilder:default=false
+    Suspend bool `json:"suspend,omitempty"`
+
     // +kubebuilder:validation:Enum=local;ibm_quantum_platform;ibm_cloud
     // +kubebuilder:default=local
     Channel string `json:"channel,omitempty"`
@@ -129,13 +181,23 @@ user's own stated priority: "first i want to get it converted to the latest patt
 can plan features next"):
 
 1. Fetch the `IBMQuantumAccount` CR.
-2. If `spec.channel == "local"`: set a `Ready` status condition, no Secret/token validation needed
+2. **Check `spec.suspend` first, before anything else.** If `true`: set a `Suspended` status condition
+   (`reason: "SpecSuspended"`) and return `ctrl.Result{}, nil` immediately — no Secret sync, no
+   validation, nothing further this reconcile. See "Design requirement: must not fight manual
+   troubleshooting" above; this check must be the first thing in the function body, not interleaved
+   with the rest of the logic.
+3. If `spec.channel == "local"`: set a `Ready` status condition, no Secret/token validation needed
    (mirrors the Ansible role's already-implemented `_using_real_account` branch in
    `qiskit-openshift-ai/automation/ansible/roles/quantum_user_secret/tasks/main.yml` — same logic,
    promoted from Ansible into the operator).
-3. If `spec.channel != "local"`: require `spec.instance` and `spec.tokenSecretRef` are set (mirrors the
-   existing Ansible `assert` task); fetch the referenced Secret; set status accordingly.
-4. Real job-submission / backend-scheduling logic (the old CSV's "least busy backend" feature) is
+4. If `spec.channel != "local"`: require `spec.instance` and `spec.tokenSecretRef` are set (mirrors the
+   existing Ansible `assert` task); fetch the referenced Secret; set status accordingly. **If the
+   referenced Secret is missing or was hand-edited to something the controller didn't write, that is
+   never treated as a reconcile error requiring backoff** — reflect it in `.status` (e.g. `reason:
+   "SecretNotFound"`) and return `ctrl.Result{}, nil`, not a non-nil error, since a human mid-
+   troubleshooting deleting/editing that Secret is an expected, not exceptional, state in this project's
+   workflow (see the design requirement above).
+5. Real job-submission / backend-scheduling logic (the old CSV's "least busy backend" feature) is
    explicitly deferred to Phase 2 per the user's stated sequencing.
 
 Run `make manifests` after any type/marker change to regenerate `config/crd/bases/` and
