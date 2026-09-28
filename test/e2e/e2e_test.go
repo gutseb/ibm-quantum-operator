@@ -31,16 +31,16 @@ import (
 )
 
 // namespace where the project is deployed in
-const namespace = "scaffold-tmp-system"
+const namespace = "ibm-quantum-operator-system"
 
 // serviceAccountName created for the project
-const serviceAccountName = "scaffold-tmp-controller-manager"
+const serviceAccountName = "ibm-quantum-operator-controller-manager"
 
 // metricsServiceName is the name of the metrics service of the project
-const metricsServiceName = "scaffold-tmp-controller-manager-metrics-service"
+const metricsServiceName = "ibm-quantum-operator-controller-manager-metrics-service"
 
 // metricsRoleBindingName is the name of the RBAC that will be created to allow get the metrics data
-const metricsRoleBindingName = "scaffold-tmp-metrics-binding"
+const metricsRoleBindingName = "ibm-quantum-operator-metrics-binding"
 
 var _ = Describe("Manager", Ordered, func() {
 	var controllerPodName string
@@ -173,7 +173,7 @@ var _ = Describe("Manager", Ordered, func() {
 		It("should ensure the metrics endpoint is serving metrics", func() {
 			By("creating a ClusterRoleBinding for the service account to allow access to metrics")
 			cmd := exec.Command("kubectl", "create", "clusterrolebinding", metricsRoleBindingName,
-				"--clusterrole=scaffold-tmp-metrics-reader",
+				"--clusterrole=ibm-quantum-operator-metrics-reader",
 				fmt.Sprintf("--serviceaccount=%s:%s", namespace, serviceAccountName),
 			)
 			_, err := utils.Run(cmd)

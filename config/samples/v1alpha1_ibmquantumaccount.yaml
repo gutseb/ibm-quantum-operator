@@ -1,9 +1,32 @@
+# Two examples: the default (local-only, no Secret needed) and a real-account, suspended-for-manual-
+# troubleshooting example. See MODERNIZATION-PLAN.md for the full field design rationale.
 apiVersion: quantum.example.com/v1alpha1
 kind: IBMQuantumAccount
 metadata:
   labels:
-    app.kubernetes.io/name: scaffold-tmp
+    app.kubernetes.io/name: ibm-quantum-operator
     app.kubernetes.io/managed-by: kustomize
-  name: ibmquantumaccount-sample
+  name: ibmquantumaccount-sample-local
 spec:
-  # TODO(user): Add fields here
+  # channel defaults to "local" -- this is equivalent to omitting spec entirely.
+  channel: local
+---
+apiVersion: quantum.example.com/v1alpha1
+kind: IBMQuantumAccount
+metadata:
+  labels:
+    app.kubernetes.io/name: ibm-quantum-operator
+    app.kubernetes.io/managed-by: kustomize
+  name: ibmquantumaccount-sample-real-suspended
+spec:
+  channel: ibm_quantum_platform
+  instance: "crn:v1:bluemix:public:quantum-computing:us-east:a/EXAMPLE:EXAMPLE:instance:EXAMPLE"
+  tokenSecretRef:
+    name: ibm-quantum-token
+  backendPolicy:
+    mode: leastBusy
+    minQubits: 5
+    operationalOnly: true
+  # Example of the manual-troubleshooting pattern from MODERNIZATION-PLAN.md: set suspend: true while
+  # hand-editing a notebook/pipeline against this account so the controller doesn't race the edits.
+  suspend: false
