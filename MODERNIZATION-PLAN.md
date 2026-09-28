@@ -283,10 +283,12 @@ of what's already been built this way, for comparison purposes.
 2. **Push destination — decided: `https://github.com/gutseb/ibm-quantum-operator`**, the user's own
    existing fork of upstream `redhat-et/ibm-quantum-operator` (created 2026-09-27, confirmed via `gh repo
    view --json isFork,parent` to be a real fork with the correct parent, not a coincidentally-named
-   unrelated repo). Added as a `fork` remote in the local clone (`origin` stays pointed at the read-only
-   upstream). This is the standard fork-based workflow this project's own bootcamp reference material
-   teaches (`rhoai-platform-foundation-bootcamp-instructions`'s `07_installation.adoc`: fork upstream,
-   push your own branches to the fork) — reused rather than inventing a different convention.
+   unrelated repo). Standard convention applied: `origin` now points at the fork (this is where all
+   testing/validation branches get pushed), `upstream` points at the read-only `redhat-et` original (the
+   eventual PR target, once this has been tested and validated against a real cluster). This is the
+   standard fork-based workflow this project's own bootcamp reference material teaches
+   (`rhoai-platform-foundation-bootcamp-instructions`'s `07_installation.adoc`: fork upstream, push your
+   own branches to the fork) — reused rather than inventing a different convention.
 3. **Relationship to `qiskit-openshift-ai/operator/`** — confirmed: build here, port the working Go
    implementation back into `qiskit-openshift-ai/operator/` later, replacing its current Helm-operator
    scaffold. Not a subtree merge; a deliberate copy-and-replace once the implementation is trusted.
