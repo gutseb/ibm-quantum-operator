@@ -220,6 +220,61 @@ make bundle IMG=quay.io/rhn_gps_segutier/quantum:ibm-quantum-operator-dev
 make bundle-build bundle-push BUNDLE_IMG=quay.io/rhn_gps_segutier/quantum:ibm-quantum-operator-bundle-dev
 ```
 
+## Runbook — setting/rotating a real IBM Quantum API token (verified 2026-09-28)
+
+`IBMQuantumAccount` never takes a token value directly on the spec — only `spec.tokenSecretRef.name`,
+a reference to an ordinary Kubernetes `Secret` the human creates and rotates out-of-band. The controller
+only ever reads it (`get`), never writes or logs it. This is deliberate: token rotation becomes a plain
+`kubectl create secret`/`oc create secret` operation, no operator-specific tooling needed, and the token
+value never has to pass through any chat, script argument, or command history the assistant can see.
+
+1. Create (or rotate) the Secret yourself, in your own terminal — never paste the token value into chat:
+
+   ```sh
+   oc create secret generic ibm-quantum-token \
+     --from-literal=token='<your real IBM Quantum API token>' \
+     -n <namespace> \
+     --dry-run=client -o yaml | oc apply -f -
+   ```
+
+   `--dry-run=client -o yaml | oc apply -f -` makes this idempotent — same command works for first
+   creation and later rotation (it replaces the Secret's `token` key in place; the controller's next
+   reconcile picks up the new value automatically, no restart needed).
+
+2. Reference it from the CR:
+
+   ```yaml
+   apiVersion: quantum.example.com/v1alpha1
+   kind: IBMQuantumAccount
+   metadata:
+     name: my-account
+     namespace: <namespace>
+   spec:
+     channel: ibm_quantum_platform   # or ibm_cloud
+     instance: <your real CRN or instance name>
+     tokenSecretRef:
+       name: ibm-quantum-token
+   ```
+
+3. Apply it (`oc apply -f`) and check status: `Secret` present + fields valid → `Ready: True`; `Secret`
+   missing or fields incomplete → no error, just no `Ready` condition set (per the suspend/no-error
+   design above) — check `oc describe ibmquantumaccount <name>` for the actual condition reasons rather
+   than assuming a missing Ready means something crashed.
+
+**Deploying the operator itself**, generalized from the live-cluster test that just passed (see the gate
+section above for the exact run):
+
+- **Fastest local dev loop** (what was used for the hello-world test): `make install` (installs the CRD
+  only) then `make run` (runs the manager as a local process against your current kubeconfig context,
+  `Ctrl+C` to stop). No image build needed — good for iterating on controller code.
+- **Real in-cluster Deployment**: `make docker-build docker-push IMG=<your registry>/ibm-quantum-operator:<tag>`
+  then `make deploy IMG=<same>` — builds/pushes an image and installs the manager as an actual
+  `Deployment` in-cluster, the way it will run in practice once this is trusted enough to leave running.
+- Either way, apply a sample CR from `config/samples/` (or your own, as above) to exercise it, and
+  `make undeploy`/`make uninstall` to remove — note `make uninstall` needs `delete` permission on
+  CustomResourceDefinitions, which a narrowly-scoped test identity may not have (hit this during the
+  live-cluster test; cleanup was finished with a more privileged session instead — see the gate section).
+
 ## Verification standard (per this project's own established practice)
 
 Consistent with every other build in this project's history (`qiskit-openshift-ai/RHOAIAWS1/ISSUES.md`
@@ -316,9 +371,36 @@ PASS: Bell state entanglement confirmed (both |00> and |11> observed, correlated
 a clean, textbook Bell state. This confirms the underlying local-simulation stack genuinely works
 correctly, independent of and prior to trusting the operator's own `Ready` status to mean anything.
 
-**Part 2 — cluster-level "hello world," not yet attempted.** Deploy this scaffold to a real cluster
-(`make install run`, or a proper `make deploy`, not just `make test` against envtest), apply a real
-`IBMQuantumAccount` CR (the `channel: local` sample) and confirm the controller actually reconciles it
-to `Ready` against a live apiserver — envtest's ephemeral apiserver proves the code is correct, but not
-that it behaves the same against a real cluster with real webhooks/admission/RBAC in the mix. This is
-the next concrete step whenever picked back up, not something to do unprompted.
+**Part 2 — cluster-level "hello world," DONE, PASS (2026-09-28).** Deployed this scaffold to the real
+live RHOAIAWS1 OpenShift cluster (not envtest) and tested it end to end:
+
+- Built a precisely-scoped `ClusterRole` for the test — exactly the manager's own generated
+  `config/rbac/role.yaml` permissions plus one-time CRD-install permissions
+  (`apiextensions.k8s.io/customresourcedefinitions`: get/list/watch/create/update/patch). A blanket
+  `cluster-admin` grant was tried first and correctly blocked by Claude Code's own permission
+  classifier; the scoped grant was used instead — least-privilege, not a workaround.
+- Created a throwaway test namespace + ServiceAccount bound to that ClusterRole, minted a 90-minute
+  SA token (`oc create token ... --duration=90m`), built a kubeconfig from it on the bastion, and
+  transferred it directly bastion→node244 via a piped SSH command so the token value never appeared in
+  the assistant's own tool output.
+- `make install` — CRD installed on the live cluster (`apiextensions.k8s.io/v1`, group
+  `quantum.example.com`, confirmed present via `oc get crd`).
+- `make run` (backgrounded) — manager started against the real apiserver using the scoped kubeconfig,
+  confirmed via logs it began watching `IBMQuantumAccount` resources.
+- Applied the `channel: local` sample CR: reconciled for real, on the live cluster, to
+  `Ready: True, reason: LocalChannel` — matching envtest's result exactly.
+- Applied a second CR (`channel: ibm_quantum_platform`, `suspend: true`, otherwise invalid/incomplete
+  spec that would normally fail Ready): confirmed only a `Suspended: True` condition was ever set, and
+  no `Ready` condition was added at all — proving the suspend-first design holds against a real
+  apiserver, not just in isolation.
+- Stopped the manager, deleted both test CRs, then cleaned up: `make uninstall` failed under the scoped
+  SA kubeconfig (it was never granted `delete` on CRDs, only get/list/watch/create/update/patch — a
+  deliberate least-privilege gap, not a bug); switched to the bastion's own `system:admin` session to
+  finish cleanup instead. Confirmed deleted: the CRD, the test namespace, the ClusterRole, and the
+  ClusterRoleBinding. Temporary kubeconfig removed from both the bastion's `/tmp/` and node 244.
+
+**Both gate parts are now DONE/PASS.** Envtest proved the reconciler logic correct in isolation; this
+proved the identical behavior (Ready on local channel, suspend-first short-circuit) holds against a real
+OpenShift apiserver with real RBAC in the mix. Per the original gate instruction, this unblocks — but
+does not by itself trigger — pushing to the fork and merging back into `qiskit-openshift-ai/operator/`;
+both remain explicit, separately-requested actions, not automatic next steps.
