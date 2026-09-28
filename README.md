@@ -10,10 +10,11 @@ based circuits on IBM quantum systems"), with a maintainer contact of `Ismael Fa
 ## What is here
 
 ```
-ibm-quantum-operator.package.yaml                              # OLM "package manifest" (legacy format)
-0.1.0/
-  ibm-quantum-operator.v0.1.0.clusterserviceversion.yaml        # the OLM ClusterServiceVersion (CSV)
-  singhp11.io_ibmqs_crd.yaml                                    # the CustomResourceDefinition
+legacy-bundle/                                                  # moved here to make room for the Go scaffold
+  ibm-quantum-operator.package.yaml                              # OLM "package manifest" (legacy format)
+  0.1.0/
+    ibm-quantum-operator.v0.1.0.clusterserviceversion.yaml        # the OLM ClusterServiceVersion (CSV)
+    singhp11.io_ibmqs_crd.yaml                                    # the CustomResourceDefinition
 ```
 
 ## What is **not** here, confirmed, not assumed
@@ -55,7 +56,7 @@ code.
 
 ## The CRD as published
 
-`0.1.0/singhp11.io_ibmqs_crd.yaml`:
+`legacy-bundle/0.1.0/singhp11.io_ibmqs_crd.yaml`:
 
 - `apiVersion: apiextensions.k8s.io/v1beta1` — **this API was removed in Kubernetes 1.22** (deprecated
   since 1.16). A cluster running anything remotely current (including every OpenShift/RHOAI version this
