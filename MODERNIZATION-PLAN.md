@@ -296,13 +296,29 @@ of what's already been built this way, for comparison purposes.
 ## Gate before either the push or the merge-back happens
 
 **Explicit instruction (2026-09-28): do not push to the fork, and do not merge back into
-`qiskit-openshift-ai/operator/`, until a "quantum hello world" has been tested.** Concretely, this means
-at minimum: deploy this scaffold to a real cluster (`make install run`, or a proper `make deploy`, not
-just `make test` against envtest), apply a real `IBMQuantumAccount` CR (the `channel: local` sample) and
-confirm the controller actually reconciles it to `Ready` against a live apiserver — envtest's ephemeral
-apiserver proves the code is correct, but not that it behaves the same against a real cluster with real
-webhooks/admission/RBAC in the mix. Whether "hello world" also means running an actual trivial Qiskit
-circuit (e.g. a Bell-state `AerSimulator` run, matching what `RHOAIAWS1`'s tutorial-set work already
-proved works) alongside the live-cluster account reconciliation, or just the reconciliation itself, was
-not fully specified — clarify which before considering this gate satisfied. Not attempted yet; this is
+`qiskit-openshift-ai/operator/`, until a "quantum hello world" has been tested.** Two parts, confirmed
+by explicit instruction: a Bell-state local-simulation test first, then the cluster-level "hello world."
+
+**Part 1 — Bell state, DONE, PASS (2026-09-28).** `hack/manual-tests/bell_state.py` — a 2-qubit Bell
+circuit (`H` + `CX` + measure) run on `AerSimulator`, 4096 shots, using this project's already-pinned
+`qiskit==2.5.2`/`qiskit-aer==0.17.2` (not arbitrary versions — the same ones validated throughout
+`container-images/profiles/pipeline-runner/`). Run for real via `uv run --python 3.12 --with
+qiskit==2.5.2 --with qiskit-aer==0.17.2` on node `192.168.250.244`:
+
+```
+counts: {'11': 2117, '00': 1979}
+correlated (00+11) fraction: 1.0000
+anticorrelated (01+10) fraction: 0.0000
+PASS: Bell state entanglement confirmed (both |00> and |11> observed, correlated >98%)
+```
+
+100% correlated, zero anticorrelated outcomes, both `00` and `11` observed with a roughly even split —
+a clean, textbook Bell state. This confirms the underlying local-simulation stack genuinely works
+correctly, independent of and prior to trusting the operator's own `Ready` status to mean anything.
+
+**Part 2 — cluster-level "hello world," not yet attempted.** Deploy this scaffold to a real cluster
+(`make install run`, or a proper `make deploy`, not just `make test` against envtest), apply a real
+`IBMQuantumAccount` CR (the `channel: local` sample) and confirm the controller actually reconciles it
+to `Ready` against a live apiserver — envtest's ephemeral apiserver proves the code is correct, but not
+that it behaves the same against a real cluster with real webhooks/admission/RBAC in the mix. This is
 the next concrete step whenever picked back up, not something to do unprompted.
