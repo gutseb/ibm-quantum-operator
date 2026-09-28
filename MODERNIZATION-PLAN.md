@@ -186,6 +186,15 @@ it converted to the latest pattern in the SDK then we can plan features next"):
   for, per `qiskit-openshift-ai`'s standing goal).
 - Least-busy backend scheduling (the old CSV's stated design; now something to actually implement).
 - Per-caller Secret handling / multi-tenancy, if still wanted (also from the old CSV's stated design).
+
+**Explicitly excluded from Phase 2 (decided 2026-09-28, see `qiskit-openshift-ai/artifacts-local/
+FINDINGS.md`'s local-simulation-tunables design decision):** fake-backend selection, noise-model
+construction, Aer simulation `method`/`seed`/parallelism tuning. These have nothing for a controller to
+reconcile (no Secret, no external resource, no drift) and belong in a code-layer helper module
+(`quantum_local`, planned for `container-images/profiles/*/`) plus an optional plain `ConfigMap` for
+tenant-wide defaults — not on `IBMQuantumAccount` or any CRD. Only reconsider a CRD for these
+(a `QuantumJob`-shaped one, distinct from `QuantumFunction`) if the operator ever grows to orchestrate
+job execution directly (spawning a Pod per submitted circuit) — not part of this plan's current scope.
 - Only after Phase 2 is stable: begin `qiskit-ai-accelerator-alignment` memory's Phase 1 (reconciling
   `qiskit-openshift-ai/RHOAIAWS1`'s manifests into the `tenants/quantum-example/` GitOps scaffold) — that
   work is explicitly gated behind this operator modernization, per standing instruction.
