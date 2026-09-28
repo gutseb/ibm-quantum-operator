@@ -275,16 +275,32 @@ already done; this phase is mostly a translation exercise.
 against the existing `qiskit-openshift-ai/operator/helm-charts/qiskit-platform` chart as a worked example
 of what's already been built this way, for comparison purposes.
 
-## Open questions to confirm before Phase 1 scaffolding starts
+## Decisions (resolved 2026-09-28)
 
-1. **Domain/group confirmation** — proceed with `quantum.example.com` / kind `IBMQuantumAccount`,
-   consolidating with `qiskit-openshift-ai/operator/`'s existing sketch? (Recommended above; not yet
-   confirmed.)
-2. **Push destination** — this local repo's `origin` remote is still the read-only upstream
-   `redhat-et/ibm-quantum-operator.git`. Needs a real destination (a fork, or a new repo, or folding
-   directly into `qiskit-openshift-ai/operator/` as a branch there instead of a separate repo) before
-   any commit here can be pushed.
-3. **Relationship to `qiskit-openshift-ai/operator/`** — build here and port back later (this plan's
-   working assumption), or should this repo directly replace that directory's contents via a subtree
-   merge/copy once Phase 1 is verified? Either works; deciding now avoids redoing the integration step
-   twice.
+1. **Domain/group** — confirmed: `quantum.example.com` / kind `IBMQuantumAccount`, consolidated with
+   `qiskit-openshift-ai/operator/`'s existing sketch. Already scaffolded this way (see the Go scaffold
+   status in the `ibm-quantum-operator-modernization` memory note).
+2. **Push destination — decided: `https://github.com/gutseb/ibm-quantum-operator`**, the user's own
+   existing fork of upstream `redhat-et/ibm-quantum-operator` (created 2026-09-27, confirmed via `gh repo
+   view --json isFork,parent` to be a real fork with the correct parent, not a coincidentally-named
+   unrelated repo). Added as a `fork` remote in the local clone (`origin` stays pointed at the read-only
+   upstream). This is the standard fork-based workflow this project's own bootcamp reference material
+   teaches (`rhoai-platform-foundation-bootcamp-instructions`'s `07_installation.adoc`: fork upstream,
+   push your own branches to the fork) — reused rather than inventing a different convention.
+3. **Relationship to `qiskit-openshift-ai/operator/`** — confirmed: build here, port the working Go
+   implementation back into `qiskit-openshift-ai/operator/` later, replacing its current Helm-operator
+   scaffold. Not a subtree merge; a deliberate copy-and-replace once the implementation is trusted.
+
+## Gate before either the push or the merge-back happens
+
+**Explicit instruction (2026-09-28): do not push to the fork, and do not merge back into
+`qiskit-openshift-ai/operator/`, until a "quantum hello world" has been tested.** Concretely, this means
+at minimum: deploy this scaffold to a real cluster (`make install run`, or a proper `make deploy`, not
+just `make test` against envtest), apply a real `IBMQuantumAccount` CR (the `channel: local` sample) and
+confirm the controller actually reconciles it to `Ready` against a live apiserver — envtest's ephemeral
+apiserver proves the code is correct, but not that it behaves the same against a real cluster with real
+webhooks/admission/RBAC in the mix. Whether "hello world" also means running an actual trivial Qiskit
+circuit (e.g. a Bell-state `AerSimulator` run, matching what `RHOAIAWS1`'s tutorial-set work already
+proved works) alongside the live-cluster account reconciliation, or just the reconciliation itself, was
+not fully specified — clarify which before considering this gate satisfied. Not attempted yet; this is
+the next concrete step whenever picked back up, not something to do unprompted.
