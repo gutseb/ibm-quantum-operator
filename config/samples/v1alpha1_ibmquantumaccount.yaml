@@ -1,0 +1,9 @@
+apiVersion: quantum.example.com/v1alpha1
+kind: IBMQuantumAccount
+metadata:
+  labels:
+    app.kubernetes.io/name: scaffold-tmp
+    app.kubernetes.io/managed-by: kustomize
+  name: ibmquantumaccount-sample
+spec:
+  # TODO(user): Add fields here
